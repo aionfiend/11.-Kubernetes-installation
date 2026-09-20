@@ -44,11 +44,14 @@ jobs:
           B_USER: ${{ secrets.BASTION_USER }}
           B_PORT: ${{ secrets.BASTION_PORT }}
           R_IP: ${{ secrets.REMOTE_K8S_IP }}
-          PASSPHRASE: ${{ secrets.BASTION_KEY_PASSPHRASE }} # Снова используем этот секрет
+          PASSPHRASE: ${{ secrets.BASTION_KEY_PASSPHRASE }}
         run: |
           mkdir -p ~/.ssh
 
-          # Записываем чистый зашифрованный ключ на диск воркера
+          # Исправлено: принудительно удаляем старый заблокированный файл ключа
+          rm -f ~/.ssh/id_rsa
+
+          # Теперь файл запишется абсолютно чисто без Permission denied
           cat << 'EOF' > ~/.ssh/id_rsa
           ${{ secrets.BASTION_SSH_KEY }}
           EOF
@@ -63,7 +66,7 @@ jobs:
           # Устанавливаем expect для автоматического ввода пароля при добавлении в агент
           sudo apt-get update && sudo apt-get install -y expect
 
-          # Добавляем ключ в агент с помощью expect (используя абсолютный путь)
+          # Добавляем ключ в агент с помощью expect
           expect <<EOF
           spawn ssh-add /home/runner/.ssh/id_rsa
           expect "Enter passphrase for"
@@ -72,17 +75,18 @@ jobs:
           EOF
 
           echo "=== Запуск фонового SSH-туннеля ==="
-          # Явно указываем использовать ключ через флаг -i, работая в рамках одной сессии ssh-agent
           ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST" -i ~/.ssh/id_rsa
 
           sleep 5
 
           if nc -z 127.0.0.1 6444; then
             echo "::notice::✅ SSH-туннель успешно поднят! Связь с кластером через бастион установлена."
+            echo "=== Связь с кластером установлена ==="
           else
             echo "::error::❌ Ошибка: Не удалось открыть локальный порт 6444."
             exit 1
           fi
+      
       
 
       - name: Check Pods Status
