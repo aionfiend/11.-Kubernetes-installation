@@ -21,45 +21,45 @@ jobs:
       - name: Configure Kubeconfig
         run: |
           mkdir -p ~/.kube
-          
+
+          # Записываем чистый YAML без экранирования
           cat << 'EOF' > ~/.kube/config
-          \${{ secrets.KUBECONFIG_DATA }}
+          ${{ secrets.KUBECONFIG_DATA }}
           EOF
-          
+
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
 
       - name: Establish SSH Tunnel through Bastion
         env:
-          B_HOST: \${{ secrets.BASTION_HOST }}
-          B_USER: \${{ secrets.BASTION_USER }}
-          B_PORT: \${{ secrets.BASTION_PORT }}
-          R_IP: \${{ secrets.REMOTE_K8S_IP }}
+          B_HOST: ${{ secrets.BASTION_HOST }}
+          B_USER: ${{ secrets.BASTION_USER }}
+          B_PORT: ${{ secrets.BASTION_PORT }}
+          R_IP: ${{ secrets.REMOTE_K8S_IP }}
         run: |
           mkdir -p ~/.ssh
-          
+
           cat << 'EOF' > ~/.ssh/id_rsa
-          \${{ secrets.BASTION_SSH_KEY }}
+          ${{ secrets.BASTION_SSH_KEY }}
           EOF
           chmod 600 ~/.ssh/id_rsa
-          
-          echo "=== Сканируем ключи хоста бастиона на порту \$B_PORT ==="
-          # Исправлено: синтаксис bash переменных строго через знак \$ без косых черт и скобок
-          ssh-keyscan -p "\(B_PORT" -H "\)B_HOST" >> ~/.ssh/known_hosts
-          
+
+          echo "=== Сканируем ключи хоста бастиона на порту $B_PORT ==="
+          ssh-keyscan -p "$B_PORT" -H "$B_HOST" >> ~/.ssh/known_hosts
+
           echo "=== Запуск SSH-туннеля к бастиону ==="
-          # Исправлено: синтаксис bash переменных
-          ssh -f -N -p "\(B_PORT" -L 6444:"\)R_IP":6443 "\(B_USER"@"\)B_HOST" -i ~/.ssh/id_rsa
-          
+          ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"Location:"$B_HOST" -i ~/.ssh/id_rsa
+
           sleep 5
-          
+
           if nc -z 127.0.0.1 6444; then
-            echo "::notice::✅ SSH-туннель успешно поднят через порт \$B_PORT! Порт 6444 открыт."
+            echo "::notice::✅ SSH-туннель успешно поднят через порт $B_PORT! Порт 6444 открыт."
             echo "=== Связь с кластером установлена ==="
           else
             echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
             exit 1
           fi
+      
 
       - name: Check Pods Status
         id: check_pods
