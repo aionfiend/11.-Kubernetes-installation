@@ -31,10 +31,13 @@ jobs:
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
 
       - name: Start SSH Agent and Add Encrypted Key
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: shimataro/ssh-key-action@v2
         with:
-          ssh-private-key: ${{ secrets.BASTION_SSH_KEY }}
-          ssh-auth-passphrase: ${{ secrets.BASTION_KEY_PASSPHRASE }} # Передаем пароль нативно
+            key: ${{ secrets.BASTION_SSH_KEY }}
+            # Этот плагин использует стандартный параметр name 'config' для передачи пароля
+            config: |
+              Host *
+                IdentityFile ~/.ssh/id_rsa
 
       - name: Establish SSH Tunnel through Bastion
         env:
