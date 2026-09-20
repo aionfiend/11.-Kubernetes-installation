@@ -21,15 +21,16 @@ jobs:
       - name: Configure Kubeconfig
         run: |
           mkdir -p ~/.kube
-          
-          # Безопасная запись оригинального текста конфига
+
+          # Записываем конфиг напрямую (убран слэш перед знаками доллара)
           cat << 'EOF' > ~/.kube/config
-          \${{ secrets.KUBECONFIG_DATA }}
+          ${{ secrets.KUBECONFIG_DATA }}
           EOF
-          
+
           # Принудительно настраиваем kubectl смотреть на локальный порт туннеля 6444
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
+      
 
       - name: Establish SSH Tunnel through Bastion
         env:
