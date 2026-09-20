@@ -34,28 +34,35 @@ jobs:
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
 
       - name: Establish SSH Tunnel through Bastion
+        env:
+          B_HOST: ${{ secrets.BASTION_HOST }}
+          B_USER: ${{ secrets.BASTION_USER }}
+          R_IP: ${{ secrets.REMOTE_K8S_IP }}
         run: |
           # Инициализируем SSH-агент и сохраняем приватный ключ бастиона
           mkdir -p ~/.ssh
           echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.BASTION_HOST }} >> ~/.ssh/known_hosts
-            
-          echo "=== Запуск SSH-туннеля к бастиону ${{ secrets.BASTION_HOST }} ==="
-          # Запускаем туннель в фоновом режиме
-          ssh -f -N -L 6444:${{ secrets.REMOTE_K8S_IP }}:6443 ${{ secrets.BASTION_USER }}@${{ secrets.BASTION_HOST }} -i ~/.ssh/id_rsa
-            
+
+          echo "=== Сканируем ключи хоста бастиона ==="
+          ssh-keyscan -H "$B_HOST" >> ~/.ssh/known_hosts
+
+          echo "=== Запуск SSH-туннеля к бастиону ==="
+          # Пробрасываем локальный порт 6444 воркера на порт 6443 внутренней мастер-ноды
+          ssh -f -N -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST" -i ~/.ssh/id_rsa
+
           # Ожидаем инициализации соединения
-          sleep 3
-            
+          sleep 5
+
           # Проверяем, открылся ли порт локально на воркере
           if nc -z 127.0.0.1 6444; then
-          echo "::notice::✅ SSH-туннель успешно поднят! Порт 6444 открыт и готов перенаправлять трафик на порт 6433 мастер-ноды."
-          echo "=== Связь с кластером установлена ==="
+            echo "::notice::✅ SSH-туннель успешно поднят! Порт 6444 открыт и готов перенаправлять трафик."
+            echo "=== Связь с кластером установлена ==="
           else
-          echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте BASTION_HOST, ключи и REMOTE_K8S_IP."
-          exit 1
+            echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
+            exit 1
           fi
+      
 
       - name: Check Pods Status
         id: check_pods
