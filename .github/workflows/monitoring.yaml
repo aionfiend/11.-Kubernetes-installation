@@ -24,7 +24,7 @@ jobs:
 
           # Записываем чистый YAML без экранирования
           cat << 'EOF' > ~/.kube/config
-          ${{ secrets.KUBECONFIG_DATA }}
+          ${{ secrets.KUBECONFIG_DATA_MONITORING }}
           EOF
 
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
