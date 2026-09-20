@@ -33,11 +33,7 @@ jobs:
       - name: Start SSH Agent and Add Encrypted Key
         uses: shimataro/ssh-key-action@v2
         with:
-            key: ${{ secrets.BASTION_SSH_KEY }}
-            # Этот плагин использует стандартный параметр name 'config' для передачи пароля
-            config: |
-              Host *
-                IdentityFile ~/.ssh/id_rsa
+          key: ${{ secrets.BASTION_SSH_KEY }}
 
       - name: Establish SSH Tunnel through Bastion
         env:
@@ -52,22 +48,17 @@ jobs:
           ssh-keyscan -p "$B_PORT" -H "$B_HOST" >> ~/.ssh/known_hosts
 
           echo "=== Запуск фонового SSH-туннеля ==="
-          # Команда ssh автоматически подхватит расшифрованный ключ из экшена выше
+          # Ключ уже расшифрован и добавлен в сессию экшеном shimataro
           ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST"
 
-          # Даем время для установления соединения
           sleep 5
 
-          # Проверяем, открылся ли порт локально на воркере
           if nc -z 127.0.0.1 6444; then
             echo "::notice::✅ SSH-туннель успешно поднят! Связь с кластером через бастион установлена."
           else
             echo "::error::❌ Ошибка: Не удалось открыть локальный порт 6444."
             exit 1
           fi
-          
-          if nc -z 127.0.0.1 6444; then
-            echo "::notice::✅ SSH-туннель успешно
 
       - name: Check Pods Status
         id: check_pods
