@@ -48,7 +48,7 @@ jobs:
           ssh-keyscan -p "$B_PORT" -H "$B_HOST" >> ~/.ssh/known_hosts
 
           echo "=== Запуск SSH-туннеля к бастиону ==="
-          ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"Location:"$B_HOST" -i ~/.ssh/id_rsa
+          ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST" -i ~/.ssh/id_rsa
 
           sleep 5
 
@@ -59,6 +59,7 @@ jobs:
             echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
             exit 1
           fi
+      
       
 
       - name: Check Pods Status
