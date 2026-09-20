@@ -34,6 +34,9 @@ jobs:
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.BASTION_SSH_KEY }}
+          # Передаем пробел-заглушку, чтобы экшен не падал из-за валидации обязательного поля
+          known_hosts: ' '
+
 
       - name: Establish SSH Tunnel through Bastion
         env:
