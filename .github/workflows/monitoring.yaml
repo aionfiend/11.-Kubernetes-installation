@@ -32,10 +32,6 @@ jobs:
           # Настраиваем kubectl смотреть на локальный порт туннеля
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
-      
-    
-      
-      
 
       - name: Establish SSH Tunnel through Bastion
         run: |
