@@ -86,26 +86,29 @@ jobs:
             echo "::error::❌ Ошибка: Не удалось открыть локальный порт 6444."
             exit 1
           fi
-      
-      
 
       - name: Check Pods Status
         id: check_pods
         run: |
           echo "=== Проверка статуса подов во всех пространствах имен ==="
-          
-          FAILED_PODS=\$(kubectl get pods -A --context k8s --no-headers | awk '\$4 !~ /Running|Completed/ {print \$1 "/" \$2 " Status: " \$4}')
-          
-          if [ -n "\$FAILED_PODS" ]; then
+
+          # Получаем список всех подов, кроме тех, что в статусе Running или Completed
+          FAILED_PODS=$(kubectl get pods -A --context k8s --no-headers | awk '$4 !~ /Running|Completed/ {print $1 "/" $2 " (Status: " $4 ")"}')
+
+          if [ -n "$FAILED_PODS" ]; then
             echo "::error::Обнаружены проблемные поды в кластере!"
             echo "----------------------------------------"
-            echo "\$FAILED_PODS"
+            echo "$FAILED_PODS"
             echo "----------------------------------------"
-            echo "FAILED_COUNT=\$(echo "\(FAILED_PODS" \vert{} wc -l)" >> \)GITHUB_ENV
+
+            # Считаем количество упавших подов
+            FAILED_COUNT=$(echo "$FAILED_PODS" | wc -l)
+            echo "FAILED_COUNT=$FAILED_COUNT" >> $GITHUB_ENV
             exit 1
           else
             echo "Все поды работают в штатном режиме (Running/Completed)."
           fi
+      
 
       - name: Create GitHub Summary Notification
         if: failure()
