@@ -23,7 +23,7 @@ Address: 10.233.0.1
 </html>
 ```
 #11.3
-1. cat ~/.kube/config | base64 | pbcopy - создаем и шифруем структуру кластреа для создания секрета в Git Action
+1. cat ~/.kube/config | base64 | tr -d '\n' | pbcopy - создаем и шифруем структуру кластреа для создания секрета в Git Action
 2. Создаем ряд секретов в Git Action для прохода через Bastion/tunnel и cluster.
 3. Создаем Webhook URLs Slack и secret для GitHub Action
 
