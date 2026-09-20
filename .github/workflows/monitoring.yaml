@@ -44,15 +44,36 @@ jobs:
           B_USER: ${{ secrets.BASTION_USER }}
           B_PORT: ${{ secrets.BASTION_PORT }}
           R_IP: ${{ secrets.REMOTE_K8S_IP }}
+          PASSPHRASE: ${{ secrets.BASTION_KEY_PASSPHRASE }} # Снова используем этот секрет
         run: |
           mkdir -p ~/.ssh
 
-          echo "=== Сканируем ключи хоста бастиона ==="
+          # Записываем чистый зашифрованный ключ на диск воркера
+          cat << 'EOF' > ~/.ssh/id_rsa
+          ${{ secrets.BASTION_SSH_KEY }}
+          EOF
+          chmod 600 ~/.ssh/id_rsa
+
+          # Сканируем ключи хоста бастиона
           ssh-keyscan -p "$B_PORT" -H "$B_HOST" >> ~/.ssh/known_hosts
 
+          echo "=== Запуск локального SSH-агента ==="
+          eval $(ssh-agent -s)
+
+          # Устанавливаем expect для автоматического ввода пароля при добавлении в агент
+          sudo apt-get update && sudo apt-get install -y expect
+
+          # Добавляем ключ в агент с помощью expect (используя абсолютный путь)
+          expect <<EOF
+          spawn ssh-add /home/runner/.ssh/id_rsa
+          expect "Enter passphrase for"
+          send "$PASSPHRASE\r"
+          expect eof
+          EOF
+
           echo "=== Запуск фонового SSH-туннеля ==="
-          # Ключ уже расшифрован и добавлен в сессию экшеном shimataro
-          ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST"
+          # Явно указываем использовать ключ через флаг -i, работая в рамках одной сессии ssh-agent
+          ssh -f -N -p "$B_PORT" -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST" -i ~/.ssh/id_rsa
 
           sleep 5
 
@@ -62,6 +83,7 @@ jobs:
             echo "::error::❌ Ошибка: Не удалось открыть локальный порт 6444."
             exit 1
           fi
+      
 
       - name: Check Pods Status
         id: check_pods
