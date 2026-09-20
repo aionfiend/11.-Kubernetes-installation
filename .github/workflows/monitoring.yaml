@@ -21,16 +21,13 @@ jobs:
       - name: Configure Kubeconfig
         run: |
           mkdir -p ~/.kube
-
-          # Записываем конфиг напрямую (убран слэш перед знаками доллара)
+          
           cat << 'EOF' > ~/.kube/config
-          ${{ secrets.KUBECONFIG_DATA }}
+          \${{ secrets.KUBECONFIG_DATA }}
           EOF
-
-          # Принудительно настраиваем kubectl смотреть на локальный порт туннеля 6444
+          
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
-      
 
       - name: Establish SSH Tunnel through Bastion
         env:
@@ -47,19 +44,17 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           
           echo "=== Сканируем ключи хоста бастиона на порту \$B_PORT ==="
-          # Добавлен флаг -p для указания кастомного порта при сканировании ключей
+          # Исправлено: синтаксис bash переменных строго через знак \$ без косых черт и скобок
           ssh-keyscan -p "\(B_PORT" -H "\)B_HOST" >> ~/.ssh/known_hosts
           
           echo "=== Запуск SSH-туннеля к бастиону ==="
-          # Добавлен флаг -p \$B_PORT для подключения SSH к нестандартному порту
+          # Исправлено: синтаксис bash переменных
           ssh -f -N -p "\(B_PORT" -L 6444:"\)R_IP":6443 "\(B_USER"@"\)B_HOST" -i ~/.ssh/id_rsa
           
-          # Ожидаем инициализации соединения
           sleep 5
           
-          # Проверяем, открылся ли порт локально на воркере
           if nc -z 127.0.0.1 6444; then
-            echo "::notice::✅ SSH-туннель успешно поднят через порт \$B_PORT! Порт 6444 открыт и готов к работе."
+            echo "::notice::✅ SSH-туннель успешно поднят через порт \$B_PORT! Порт 6444 открыт."
             echo "=== Связь с кластером установлена ==="
           else
             echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
@@ -71,7 +66,6 @@ jobs:
         run: |
           echo "=== Проверка статуса подов во всех пространствах имен ==="
           
-          # Фильтруем проблемные поды
           FAILED_PODS=\$(kubectl get pods -A --context k8s --no-headers | awk '\$4 !~ /Running|Completed/ {print \$1 "/" \$2 " Status: " \$4}')
           
           if [ -n "\$FAILED_PODS" ]; then
