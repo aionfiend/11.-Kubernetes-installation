@@ -21,13 +21,17 @@ jobs:
           version: 'v1.36.4'
 
       - name: Configure Kubeconfig
+        env:
+          KUBE_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
           mkdir -p ~/.kube
-          echo "\${{ secrets.KUBECONFIG_DATA_MONITORING }}" | base64 --decode > ~/.kube/config
-          
+          # Декодируем чистую строку base64 напрямую в файл конфигурации
+          echo "$KUBE_DATA" | base64 --decode > ~/.kube/config
+
           # Принудительно настраиваем kubectl в облаке смотреть на порт туннеля 6444
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
+      
 
       - name: Establish SSH Tunnel through Bastion
         run: |
