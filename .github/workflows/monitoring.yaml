@@ -39,29 +39,31 @@ jobs:
           B_USER: ${{ secrets.BASTION_USER }}
           R_IP: ${{ secrets.REMOTE_K8S_IP }}
         run: |
-          # Инициализируем SSH-агент и сохраняем приватный ключ бастиона
+          # Создаем директорию для SSH
           mkdir -p ~/.ssh
-          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/id_rsa
+
+          # Передаем ключ, используя heredoc во избежание проблем с многострочностью
+          cat << 'EOF' > ~/.ssh/id_rsa
+          ${{ secrets.BASTION_SSH_KEY }}
+          EOF
           chmod 600 ~/.ssh/id_rsa
 
-          echo "=== Сканируем ключи хоста бастиона ==="
-          ssh-keyscan -H "$B_HOST" >> ~/.ssh/known_hosts
+          echo "=== Тестируем доступность бастиона ==="
+          # Пытаемся получить ключ хоста с выводом ошибок в консоль
+          ssh-keyscan -v -H "$B_HOST" >> ~/.ssh/known_hosts 2> keyscan_err.log || echo "keyscan failed"
+          cat keyscan_err.log
 
-          echo "=== Запуск SSH-туннеля к бастиону ==="
-          # Пробрасываем локальный порт 6444 воркера на порт 6443 внутренней мастер-ноды
-          ssh -f -N -L 6444:"$R_IP":6443 "$B_USER"@"$B_HOST" -i ~/.ssh/id_rsa
+          echo "=== Пробуем интерактивное SSH подключение ==="
+          # Запускаем тестовое подключение с подробным логированием (-v), чтобы увидеть отказ
+          ssh -v -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$B_USER"@"$B_HOST" "echo 'Проверка связи'" 2> ssh_debug.log || true
 
-          # Ожидаем инициализации соединения
-          sleep 5
+          # Выводим логи подключения на экран GitHub Actions
+          cat ssh_debug.log
 
-          # Проверяем, открылся ли порт локально на воркере
-          if nc -z 127.0.0.1 6444; then
-            echo "::notice::✅ SSH-туннель успешно поднят! Порт 6444 открыт и готов перенаправлять трафик."
-            echo "=== Связь с кластером установлена ==="
-          else
-            echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
-            exit 1
-          fi
+          # Завершаем шаг принудительно, чтобы вы могли проанализировать логи
+          echo "::error::Анализ логов завершен. Пожалуйста, посмотрите текст выше."
+          exit 1
+      
       
 
       - name: Check Pods Status
