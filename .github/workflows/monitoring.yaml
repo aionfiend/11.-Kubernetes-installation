@@ -2,9 +2,7 @@ name: Kubernetes Cluster Monitor (Via Bastion Tunnel)
 
 on:
   schedule:
-    # Автоматический запуск каждые 15 минут
     - cron: '*/15 * * * *'
-  # Возможность ручного запуска из панели управления GitHub Actions
   workflow_dispatch:
 
 jobs:
@@ -23,55 +21,56 @@ jobs:
       - name: Configure Kubeconfig
         run: |
           mkdir -p ~/.kube
-
-          # Записываем конфиг напрямую как текст, игнорируя спецсимволы
+          
+          # Безопасная запись оригинального текста конфига
           cat << 'EOF' > ~/.kube/config
-          ${{ secrets.KUBECONFIG_DATA }}
+          \${{ secrets.KUBECONFIG_DATA }}
           EOF
-
-          # Настраиваем kubectl смотреть на локальный порт туннеля
+          
+          # Принудительно настраиваем kubectl смотреть на локальный порт туннеля 6444
           kubectl config set-cluster k8s --server=https://127.0.0.1:6444
           kubectl config set-cluster k8s --insecure-skip-tls-verify=true
 
       - name: Establish SSH Tunnel through Bastion
         env:
-          B_HOST: ${{ secrets.BASTION_HOST }}
-          B_USER: ${{ secrets.BASTION_USER }}
-          R_IP: ${{ secrets.REMOTE_K8S_IP }}
+          B_HOST: \${{ secrets.BASTION_HOST }}
+          B_USER: \${{ secrets.BASTION_USER }}
+          B_PORT: \${{ secrets.BASTION_PORT }}
+          R_IP: \${{ secrets.REMOTE_K8S_IP }}
         run: |
-          # Создаем директорию для SSH
           mkdir -p ~/.ssh
-
-          # Передаем ключ, используя heredoc во избежание проблем с многострочностью
+          
           cat << 'EOF' > ~/.ssh/id_rsa
-          ${{ secrets.BASTION_SSH_KEY }}
+          \${{ secrets.BASTION_SSH_KEY }}
           EOF
           chmod 600 ~/.ssh/id_rsa
-
-          echo "=== Тестируем доступность бастиона ==="
-          # Пытаемся получить ключ хоста с выводом ошибок в консоль
-          ssh-keyscan -v -H "$B_HOST" >> ~/.ssh/known_hosts 2> keyscan_err.log || echo "keyscan failed"
-          cat keyscan_err.log
-
-          echo "=== Пробуем интерактивное SSH подключение ==="
-          # Запускаем тестовое подключение с подробным логированием (-v), чтобы увидеть отказ
-          ssh -v -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "$B_USER"@"$B_HOST" "echo 'Проверка связи'" 2> ssh_debug.log || true
-
-          # Выводим логи подключения на экран GitHub Actions
-          cat ssh_debug.log
-
-          # Завершаем шаг принудительно, чтобы вы могли проанализировать логи
-          echo "::error::Анализ логов завершен. Пожалуйста, посмотрите текст выше."
-          exit 1
-      
-      
+          
+          echo "=== Сканируем ключи хоста бастиона на порту \$B_PORT ==="
+          # Добавлен флаг -p для указания кастомного порта при сканировании ключей
+          ssh-keyscan -p "\(B_PORT" -H "\)B_HOST" >> ~/.ssh/known_hosts
+          
+          echo "=== Запуск SSH-туннеля к бастиону ==="
+          # Добавлен флаг -p \$B_PORT для подключения SSH к нестандартному порту
+          ssh -f -N -p "\(B_PORT" -L 6444:"\)R_IP":6443 "\(B_USER"@"\)B_HOST" -i ~/.ssh/id_rsa
+          
+          # Ожидаем инициализации соединения
+          sleep 5
+          
+          # Проверяем, открылся ли порт локально на воркере
+          if nc -z 127.0.0.1 6444; then
+            echo "::notice::✅ SSH-туннель успешно поднят через порт \$B_PORT! Порт 6444 открыт и готов к работе."
+            echo "=== Связь с кластером установлена ==="
+          else
+            echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте параметры сети."
+            exit 1
+          fi
 
       - name: Check Pods Status
         id: check_pods
         run: |
           echo "=== Проверка статуса подов во всех пространствах имен ==="
           
-          # Фильтруем поды, исключая статусы Running и Completed
+          # Фильтруем проблемные поды
           FAILED_PODS=\$(kubectl get pods -A --context k8s --no-headers | awk '\$4 !~ /Running|Completed/ {print \$1 "/" \$2 " Status: " \$4}')
           
           if [ -n "\$FAILED_PODS" ]; then
@@ -79,11 +78,7 @@ jobs:
             echo "----------------------------------------"
             echo "\$FAILED_PODS"
             echo "----------------------------------------"
-          
-            # Сохраняем количество упавших подов для вывода в сводку
             echo "FAILED_COUNT=\$(echo "\(FAILED_PODS" \vert{} wc -l)" >> \)GITHUB_ENV
-          
-            # Завершаем шаг с ошибкой, чтобы инициировать уведомление системы
             exit 1
           else
             echo "Все поды работают в штатном режиме (Running/Completed)."
@@ -95,18 +90,3 @@ jobs:
           echo "### ⚠️ Сбой в кластере Kubernetes!" >> \$GITHUB_STEP_SUMMARY
           echo "Обнаружено проблемных подов: \({{ env.FAILED_COUNT }}" >> \)GITHUB_STEP_SUMMARY
           echo "Пожалуйста, откройте k9s или выполните \`kubectl get pods -A\` для диагностики." >> \$GITHUB_STEP_SUMMARY
-
-      - name: Send Alert Notification to Slack
-        if: failure()
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_CHANNEL: all_aion_fr
-          SLACK_COLOR: '#FF0000' # Красный цвет полосы сообщения
-          SLACK_USERNAME: 'K8s Monitor Bot'
-          SLACK_ICON: 'https://kubernetes.io'
-          SLACK_TITLE: '⚠️ Критическая ошибка в кластере Kubernetes!'
-          SLACK_MESSAGE: |
-            В кластере зафиксировано падение подов!
-            Проблемных подов обнаружено: ${{ env.FAILED_COUNT }}
-            Ссылка на запуск пайплайна: https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }}
