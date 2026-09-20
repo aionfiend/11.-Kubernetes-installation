@@ -1,0 +1,99 @@
+name: Kubernetes Cluster Monitor (Via Bastion Tunnel)
+
+on:
+  schedule:
+    # Автоматический запуск каждые 15 минут
+    - cron: '*/15 * * * *'
+  # Возможность ручного запуска из панели управления GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  monitor-pods:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.36.4'
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "\${{ secrets.KUBECONFIG_DATA_MONITORING }}" | base64 --decode > ~/.kube/config
+          
+          # Принудительно настраиваем kubectl в облаке смотреть на порт туннеля 6444
+          kubectl config set-cluster k8s --server=https://127.0.0.1:6444
+          kubectl config set-cluster k8s --insecure-skip-tls-verify=true
+
+      - name: Establish SSH Tunnel through Bastion
+        run: |
+          # Инициализируем SSH-агент и сохраняем приватный ключ бастиона
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BASTION_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.BASTION_HOST }} >> ~/.ssh/known_hosts
+            
+          echo "=== Запуск SSH-туннеля к бастиону ${{ secrets.BASTION_HOST }} ==="
+          # Запускаем туннель в фоновом режиме
+          ssh -f -N -L 6444:${{ secrets.REMOTE_K8S_IP }}:6443 ${{ secrets.BASTION_USER }}@${{ secrets.BASTION_HOST }} -i ~/.ssh/id_rsa
+            
+          # Ожидаем инициализации соединения
+          sleep 3
+            
+          # Проверяем, открылся ли порт локально на воркере
+          if nc -z 127.0.0.1 6444; then
+          echo "::notice::✅ SSH-туннель успешно поднят! Порт 6444 открыт и готов перенаправлять трафик на порт 6433 мастер-ноды."
+          echo "=== Связь с кластером установлена ==="
+          else
+          echo "::error::❌ Ошибка: Не удалось установить SSH-туннель. Проверьте BASTION_HOST, ключи и REMOTE_K8S_IP."
+          exit 1
+          fi
+
+      - name: Check Pods Status
+        id: check_pods
+        run: |
+          echo "=== Проверка статуса подов во всех пространствах имен ==="
+          
+          # Фильтруем поды, исключая статусы Running и Completed
+          FAILED_PODS=\$(kubectl get pods -A --context k8s --no-headers | awk '\$4 !~ /Running|Completed/ {print \$1 "/" \$2 " Status: " \$4}')
+          
+          if [ -n "\$FAILED_PODS" ]; then
+            echo "::error::Обнаружены проблемные поды в кластере!"
+            echo "----------------------------------------"
+            echo "\$FAILED_PODS"
+            echo "----------------------------------------"
+          
+            # Сохраняем количество упавших подов для вывода в сводку
+            echo "FAILED_COUNT=\$(echo "\(FAILED_PODS" \vert{} wc -l)" >> \)GITHUB_ENV
+          
+            # Завершаем шаг с ошибкой, чтобы инициировать уведомление системы
+            exit 1
+          else
+            echo "Все поды работают в штатном режиме (Running/Completed)."
+          fi
+
+      - name: Create GitHub Summary Notification
+        if: failure()
+        run: |
+          echo "### ⚠️ Сбой в кластере Kubernetes!" >> \$GITHUB_STEP_SUMMARY
+          echo "Обнаружено проблемных подов: \({{ env.FAILED_COUNT }}" >> \)GITHUB_STEP_SUMMARY
+          echo "Пожалуйста, откройте k9s или выполните \`kubectl get pods -A\` для диагностики." >> \$GITHUB_STEP_SUMMARY
+
+      - name: Send Alert Notification to Slack
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_CHANNEL: all_aion_fr
+          SLACK_COLOR: '#FF0000' # Красный цвет полосы сообщения
+          SLACK_USERNAME: 'K8s Monitor Bot'
+          SLACK_ICON: 'https://kubernetes.io'
+          SLACK_TITLE: '⚠️ Критическая ошибка в кластере Kubernetes!'
+          SLACK_MESSAGE: |
+            В кластере зафиксировано падение подов!
+            Проблемных подов обнаружено: ${{ env.FAILED_COUNT }}
+            Ссылка на запуск пайплайна: https://github.com{{ github.repository }}/actions/runs/${{ github.run_id }}
